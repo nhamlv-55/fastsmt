@@ -23,6 +23,8 @@ import os
 import numpy as np
 import time
 import torch
+import sys
+sys.path.append("..")
 
 from fastsmt.synthesis.search_strategies import ModelSearch
 from fastsmt.synthesis.search.models import ApprenticeModel, FastTextModel, RandomModel, BFSModel

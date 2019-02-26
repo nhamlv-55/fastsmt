@@ -20,10 +20,12 @@ import logging
 import numpy as np
 import os
 import random
+import sys
+sys.path.append("../..")
+sys.path.append("..")
 import torch
 from fastsmt.synthesis.multi.synthesizer import *
 from fastsmt.utils.tester import BenchmarkGoalTester
-
 TIMEOUT = 100000000
 LOG = logging.getLogger(__name__)
 
