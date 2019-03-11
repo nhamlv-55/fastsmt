@@ -33,6 +33,13 @@ sys.setrecursionlimit(1500)
 EMBED_SIZE = 30
 MAX_DEPTH = 20
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# Assuming that we are on a CUDA machine, this should print a CUDA device:
+
+print(device)
+
+
 #TODO: Add eps noise to softmax to prevent NaN
 #TODO: Maybe move batch-norm after activation
 class PolicyNN(nn.Module):
@@ -68,7 +75,7 @@ class PolicyNN(nn.Module):
         for tactic, num_params in params_per_tactic.items():
             if num_params == 0:
                 continue
-            self.param_layer[tactic] = nn.Linear(50, num_params)
+            self.param_layer[tactic] = nn.Linear(50, num_params).to(device)
 
         self.softmax = nn.Softmax(dim=1)
         self.log_softmax = nn.LogSoftmax(dim=1)
@@ -85,6 +92,8 @@ class PolicyNN(nn.Module):
         :param features: features describing the formula
         :return: K-dimensional vector which is result of encoding
         """
+        tactics = tactics.to(device)
+        features = features.to(device)
         tactics = self.embedding(tactics)
         tactics = tactics.view(-1, self.max_len * self.embed_size)
         tactics = F.relu(self.bn0(self.fc0(tactics)))
@@ -97,6 +106,7 @@ class PolicyNN(nn.Module):
 
     def forward_params(self, tactic, encoder_out):
         """ Given tactic and output of encoder, predicts parameters of the tactic. """
+        encoder_out = encoder_out.to(device)
         return torch.sigmoid(self.param_layer[tactic](encoder_out))
 
     def forward(self, tactics, features):
@@ -106,6 +116,8 @@ class PolicyNN(nn.Module):
         :param features: features extracted from the formula (such as bag-of-words)
         :return: probabilities and log-probabilities for each tactic
         """
+        tactics = tactics.to(device)
+        features = features.to(device)
         z = self.encoder(tactics, features)
         logits = self.bn2(self.fc2(z))
 
@@ -195,12 +207,15 @@ class PolicyNN(nn.Module):
         else:
             train, valid = dataset, Dataset([])
 
+
+
         self.log.info('Training dataset size: %d' % train.n_samples)
         self.log.info('Validation dataset size: %d' % valid.n_samples)
 
         self.writer = SummaryWriter()
 
         train, valid = self.preprocess(train, valid)
+
         train_tactics, valid_tactics = train.get_tactics(), valid.get_tactics()
         train_features, valid_features = train.get_features(), valid.get_features()
         train_target_params, valid_target_params = train.get_target_params(), valid.get_target_params()
@@ -233,6 +248,7 @@ class PolicyNN(nn.Module):
                 optimizer.zero_grad()
 
                 mini_batch = Variable(idx[i:i + mini_batch_size])
+
                 batch_tactics = train_tactics[mini_batch, :]
                 batch_features = train_features[mini_batch, :]
                 batch_target_params = [train_target_params[idx[i + j]] for j in range(mini_batch_size)]
@@ -242,17 +258,22 @@ class PolicyNN(nn.Module):
                     Variable(torch.from_numpy(batch_features).float()),
                 )
 
+
                 # predict probability distribution over tactics
                 probs, log_probs = probs.view(-1), log_probs.view(-1)
+                probs = probs.to(device)
+                log_probs = log_probs.to(device)
 
                 batch_target_probs = train_target_probs[mini_batch, :]
                 batch_target_probs = Variable(
                     torch.from_numpy(batch_target_probs).float()).view(-1)
+                batch_target_probs = batch_target_probs.to(device)
 
                 kl_loss = -torch.dot(log_probs, batch_target_probs) / mini_batch_size
 
                 # for each tactic, predict arguments
                 mse_loss = torch.FloatTensor([0])
+                mse_loss = mse_loss.to(device)
                 for j in range(mini_batch_size):
                     tactic_name, true_params = batch_target_params[j]
                     if tactic_name not in self.param_layer:
@@ -260,9 +281,11 @@ class PolicyNN(nn.Module):
                         continue
                     pred_params = self.forward_params(tactic_name, encoder_out[j])
                     true_params = torch.FloatTensor([value for _, value in true_params.items()])
+                    true_params = true_params.to(device)
                     mse_loss += torch.dot(pred_params - true_params, pred_params - true_params) / mini_batch_size
 
                 total_loss = 0.1 * kl_loss + 0.9 * mse_loss
+
                 total_loss.backward()
 
                 all_kl_loss.append(kl_loss.item())

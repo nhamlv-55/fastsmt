@@ -20,7 +20,7 @@ import logging
 import os
 import tempfile
 import time
-
+import torch
 try:
     import fastText
 except ImportError:
@@ -275,6 +275,9 @@ class ApprenticeModel(Model):
         self.trained = False
         self.num_train = 0
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        print(self.device)
+
         self.nn = None
         if self.type == 'ast':
             self.init_network()
@@ -314,6 +317,8 @@ class ApprenticeModel(Model):
         params_per_tactic = self.strategy_enum.get_params_per_tactic()
         if self.type == 'bow':
             self.nn = PolicyNN(self.num_tactics, num_features, params_per_tactic, 30, MAX_LEN)
+
+            self.nn.to(self.device)
             if self.model_data is not None:
                 self.load_now()
         elif self.type == 'ast':
@@ -445,7 +450,6 @@ class ApprenticeModel(Model):
         if dataset.n_samples < self.config['models']['apprentice']['min_train_data']:
             print('Data size = %d is too low, not training' % dataset.n_samples)
             return
-
         self.nn.retrain(self.config, dataset)
         self.trained = True
         if len(self.data) > 10000:
@@ -561,7 +565,7 @@ class TrainedModel:
 
     def solve_instances_batched(self, tester, smt_instances, max_timeout, batch_size):
         strategies = self.get_synthesized_strategies()
-        self.log.info('Evaluating strategy ' + str(strategies[0]))
+        # self.log.info('Evaluating strategy ' + str(strategies[0]))
         best_tasks = [None for _ in smt_instances]
 
         for i in range(0, len(strategies), batch_size):
@@ -579,7 +583,7 @@ class TrainedModel:
 
     def solve_instances(self, tester, smt_instances, max_timeout, all=False):
         strategies = self.get_synthesized_strategies()
-        self.log.info('Evaluating strategy ' + str(strategies[0]))
+        # self.log.info('Evaluating strategy ' + str(strategies[0]))
         best_tasks = evaluate_candidate_strategy(tester, strategies[0], smt_instances, max_timeout)
         all_tasks = []
         if all:
@@ -587,7 +591,7 @@ class TrainedModel:
                 all_tasks.append(task)
 
         for strategy in strategies[1:]:
-            self.log.info('Evaluating strategy ' + str(strategy))
+            # self.log.info('Evaluating strategy ' + str(strategy))
             tasks = evaluate_candidate_strategy(tester, strategy, smt_instances, max_timeout, best_tasks)
             for i, task in enumerate(tasks):
                 all_tasks.append(task)
