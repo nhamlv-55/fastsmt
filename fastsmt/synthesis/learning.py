@@ -40,7 +40,7 @@ class Synthesizer(object):
     which contains information on the benchmark, maximum time limit and models to be used
     for synthesis. """
 
-    def __init__(self, config, pop_size, max_timeout, experiment_name, eval_dir=None):
+    def __init__(self, config, pop_size, max_timeout, experiment_name, eval_dir=None, cached_pickle = None):
         """ Initializes object of type Synthesizer.
 
         :param config: dict with configuration of the synthesis procedure
@@ -58,7 +58,7 @@ class Synthesizer(object):
         if not os.path.isdir(eval_dir):
             os.makedirs(eval_dir)
 
-        self.main_model = self.get_model(self.config['main_model'])
+        self.main_model = self.get_model(self.config['main_model'], cached_pickle=cached_pickle)
         self.explore_model = self.get_model(self.config['explore_model'])
         self.smt_instances = {}
         self.num_valids = 0
@@ -111,16 +111,16 @@ class Synthesizer(object):
                     continue
                 print(best_strategy, file=f)
                     
-    def get_model(self, model_name):
+    def get_model(self, model_name, cached_pickle = None):
         """ Creates model object from config, used to guide the search. """
         if model_name == "random":
-            return RandomModel(self.config)
+            return RandomModel(self.config, cached_pickle = cached_pickle)
         elif model_name == "bfs":
-            return BFSModel(self.config)
+            return BFSModel(self.config, cached_pickle = cached_pickle)
         elif model_name == 'apprentice':
-            return ApprenticeModel(self.config)
+            return ApprenticeModel(self.config, cached_pickle = cached_pickle)
         elif model_name == 'fast_text':
-            return FastTextModel(self.config)
+            return FastTextModel(self.config, cached_pickle = cached_pickle)
 
         assert False, 'Model not found {}'.format(model_name)
 
@@ -366,6 +366,7 @@ def main():
     parser.add_argument('--tmp_dir', type=str, default='tmp/', help='Temporary directory where SMT formulas should be saved')
     parser.add_argument('--very_small_test', action='store_true', help='Whether to use very small validation set.')
     parser.add_argument('--validate_model', type=str, default=None, help='Whether validation pass should be performed')
+    parser.add_argument('--cached_pickle', type=str, default=None, help = 'Cached data in the pickle format so we can immediately train the neural network instead of having to randomly search.')
     args = parser.parse_args()
 
     experiment_name = str(int(time.time())) if args.experiment_name is None else args.experiment_name
@@ -387,7 +388,7 @@ def main():
     torch.manual_seed(args.seed)
     torch.set_num_threads(4)
 
-    synthesizer = Synthesizer(config, args.pop_size, args.max_timeout, experiment_name=experiment_name, eval_dir=args.eval_dir)
+    synthesizer = Synthesizer(config, args.pop_size, args.max_timeout, experiment_name=experiment_name, eval_dir=args.eval_dir, cached_pickle=args.cached_pickle)
     shutil.copy2(args.json_config, synthesizer.run_dir)
 
     benchmark_dir = os.path.abspath(args.benchmark_dir)
@@ -410,6 +411,7 @@ def main():
         synthesizer.validation_pass(args.smt_batch_size, args.num_iters)
     else:
         for i in range(args.full_pass):
+
             model_file = os.path.join(synthesizer.models_dir, 'model_' + str(i+1) + '.pt')
             synthesizer.training_pass(args.smt_batch_size, num_iters, model_file)
             num_iters += args.iters_inc

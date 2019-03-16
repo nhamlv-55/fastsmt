@@ -21,6 +21,12 @@ import os
 import tempfile
 import time
 import torch
+
+from pprint import pprint
+from inspect import getmembers
+
+import pickle
+
 try:
     import fastText
 except ImportError:
@@ -41,7 +47,9 @@ INF = 10**10
 
 class Model(ABC):
 
-    def __init__(self, config):
+    def __init__(self, config, cached_pickle = None):
+        if cached_pickle:
+            self.cached_pickle = cached_pickle
         self.config = config
         if "tactics_config" in config:
             tactics_config = config["tactics_config"]
@@ -257,8 +265,8 @@ class ApprenticeModel(Model):
     """ Model which uses neural network to guide the search.
     It is trained using Dagger. """
 
-    def __init__(self, config):
-        super(ApprenticeModel, self).__init__(config)
+    def __init__(self, config, cached_pickle = None):
+        super(ApprenticeModel, self).__init__(config, cached_pickle = cached_pickle)
         self.config = config
         if "tactics_config" in self.config:
             tactics_config = self.config["tactics_config"]
@@ -375,7 +383,11 @@ class ApprenticeModel(Model):
 
     def retrain(self):
         """ Retrain the network using all collected data. """
-        self.log.debug('Datapoints collected: ' + str(len(self.data)))
+        self.log.info('Datapoints collected: ' + str(len(self.data)))
+        self.log.debug("Logging out data:")
+
+        # for d in self.data:
+        #     self.log.debug(pprint(vars(d[0])))
 
         best_per_file = {}
         for scored_candidate, status in self.data:
@@ -449,7 +461,17 @@ class ApprenticeModel(Model):
 
         if dataset.n_samples < self.config['models']['apprentice']['min_train_data']:
             print('Data size = %d is too low, not training' % dataset.n_samples)
-            return
+            if self.cached_pickle and os.path.isfile(self.cached_pickle):
+                print("Loading the cached pickle dataset")
+                with open(self.cached_pickle, 'rb') as f:
+                    dataset =  pickle.load(f)
+            else:
+                return
+        else:
+            if self.cached_pickle:
+                with open(self.cached_pickle, 'wb') as f:
+                    pickle.dump(dataset, f, pickle.HIGHEST_PROTOCOL)
+        print("training with %s datapoints"%(str(dataset.n_samples)))
         self.nn.retrain(self.config, dataset)
         self.trained = True
         if len(self.data) > 10000:
