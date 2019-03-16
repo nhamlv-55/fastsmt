@@ -472,6 +472,10 @@ class ApprenticeModel(Model):
                 with open(self.cached_pickle, 'wb') as f:
                     pickle.dump(dataset, f, pickle.HIGHEST_PROTOCOL)
         print("training with %s datapoints"%(str(dataset.n_samples)))
+
+        # DIRTY hack. Immediately remove after the RNN worked.
+        if self.nn == None:
+            self.init_network(num_features=73)
         self.nn.retrain(self.config, dataset)
         self.trained = True
         if len(self.data) > 10000:
@@ -486,6 +490,7 @@ class ApprenticeModel(Model):
 
         tactics, features, params = self.featurize_candidate(scored_candidate)
         if self.nn is None and self.type == 'bow':
+            print("Number of features:%s"%(str(features.shape[0])))
             self.init_network(features.shape[0])
 
     # TODO: Maybe cache here, will be called 20x for same parent.
@@ -528,6 +533,7 @@ class ApprenticeModel(Model):
         tactics, features, params = self.featurize_candidate(parent)
 
         if self.nn is None and self.type == 'bow':
+
             self.init_network(features.shape[0])
 
         params_pred = self.nn.predict_params(tactic, tactics, features)

@@ -74,6 +74,9 @@ class Synthesizer(object):
 
         self.best_candidate = {}
 
+        if cached_pickle:
+            self.cached_pickle = cached_pickle
+
     def save_candidates(self, name, all_candidates, smt_instance, valid):
         """ Saves synthesized strategies to a file. """
         if self.eval_dir is None:
@@ -282,6 +285,17 @@ class Synthesizer(object):
         :param num_iters: number of iterations to run the synthesis for
         :param valid: whether batch corresponds to training or validation data
         """
+        if self.cached_pickle and os.path.isfile(self.cached_pickle):
+            print(self.main_model)
+            self.main_model.retrain()
+            self.cached_pickle = None
+        #
+        #     candidates, _ = self.synthesize_candidate_strategy(
+        #         all_instances=batch,
+        #         max_timeout=self.max_timeout,
+        #         num_iters=num_iters,
+        #         valid=valid)
+        # else:
         candidates, _ = self.synthesize_candidate_strategy(
             all_instances=batch,
             max_timeout=self.max_timeout,
