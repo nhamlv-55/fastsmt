@@ -48,8 +48,7 @@ INF = 10**10
 class Model(ABC):
 
     def __init__(self, config, cached_pickle = None):
-        if cached_pickle:
-            self.cached_pickle = cached_pickle
+        self.cached_pickle = cached_pickle
         self.config = config
         if "tactics_config" in config:
             tactics_config = config["tactics_config"]

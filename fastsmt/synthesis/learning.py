@@ -74,8 +74,7 @@ class Synthesizer(object):
 
         self.best_candidate = {}
 
-        if cached_pickle:
-            self.cached_pickle = cached_pickle
+        self.cached_pickle = cached_pickle
 
     def save_candidates(self, name, all_candidates, smt_instance, valid):
         """ Saves synthesized strategies to a file. """
