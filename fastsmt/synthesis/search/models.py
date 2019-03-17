@@ -324,8 +324,8 @@ class ApprenticeModel(Model):
         """ Initializes neural network."""
         params_per_tactic = self.strategy_enum.get_params_per_tactic()
         if self.type == 'bow':
-            self.nn = PolicyNN(self.num_tactics, num_features, params_per_tactic, 30, MAX_LEN)
-
+            # self.nn = PolicyNN(self.num_tactics, num_features, params_per_tactic, 30, MAX_LEN)
+            self.nn = RNN(self.num_tactics, num_features, params_per_tactic, 30, MAX_LEN)
             self.nn.to(self.device)
             if self.model_data is not None:
                 self.load_now()

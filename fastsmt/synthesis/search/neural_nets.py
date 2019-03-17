@@ -342,7 +342,7 @@ class RNN(nn.Module):
     applied to it so far and returns probability distribution over next
     tactics to apply. """
 
-    def __init__(self, num_tactics, num_features, params_per_tactic, embed_size, max_len):
+    def __init__(self, num_tactics, num_features, params_per_tactic, embed_size, max_len, context_size = 100, hidden_size = 100):
         """ Initializes object of type PolicyNN.
 
         :param num_tactics: number of tactics available
@@ -351,35 +351,48 @@ class RNN(nn.Module):
         :param embed_size: size of the embedding for each tactic
         :param max_len: maximum length of the strategy
         """
-        super(PolicyNN, self).__init__()
+        super(RNN, self).__init__()
+        self.log = logging.getLogger('RNN')
         self.num_tactics = num_tactics
         self.num_features = num_features
         self.embed_size = embed_size
         self.max_len = max_len
+        self.context_size = context_size
+        self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(num_tactics + 1, self.embed_size)
 
-        self.fc0 = nn.Linear(self.max_len * self.embed_size, 100)
-        self.bn0 = nn.BatchNorm1d(100)
-        self.fc1 = nn.Linear(100 + 100, 50)
-        self.bn1 = nn.BatchNorm1d(50)
-
-        self.fc2 = nn.Linear(50, num_tactics)
-        self.bn2 = nn.BatchNorm1d(num_tactics)
         self.param_layer = {}
         for tactic, num_params in params_per_tactic.items():
             if num_params == 0:
                 continue
-            self.param_layer[tactic] = nn.Linear(50, num_params).to(device)
+            self.param_layer[tactic] = nn.Linear(self.hidden_size, num_params).to(device)
 
         self.softmax = nn.Softmax(dim=1)
         self.log_softmax = nn.LogSoftmax(dim=1)
 
-        self.fc3 = nn.Linear(self.num_features, 100)
-        self.bn3 = nn.BatchNorm1d(100)
+        """
+        context: features + probes
+        in models.py
+                    features = np.concatenate((probes, features))
+        """
 
-        self.fc_value = nn.Linear(50, 1)
-        self.log = logging.getLogger('PolicyNN')
+        self.fc3 = nn.Linear(self.num_features, self.context_size)
+        self.bn3 = nn.BatchNorm1d(self.context_size)
+
+
+        """
+        input to lstm:
+        context + tactic's embedding
+        """
+
+        self.lstm = nn.LSTM(self.context_size+self.embed_size, self.hidden_size, batch_first=True)
+        self.log.debug(self.lstm)
+        #lstm decoder
+        self.hidden2tactic = nn.Linear(self.hidden_size, num_tactics)
+
+
+
 
     def encoder(self, tactics, features):
         """ Given tactics applied so far and features describing the formula this function encodes them in a vector.
@@ -413,28 +426,45 @@ class RNN(nn.Module):
         """
         tactics = tactics.to(device)
         features = features.to(device)
-        z = self.encoder(tactics, features)
-        logits = self.bn2(self.fc2(z))
+        self.log.debug("len tactics = ", len(tactics))
+        embeds = self.embedding(tactics)
+        context = self.bn3(self.fc3(features))
+        # tiling context tensor
+        context = context.view(len(tactics), 1, -1)
+        context = context.repeat(1, len(tactics[0]), 1)
+        # for e in embeds[,:,]:
+        #     #e should have shape (length_of_tactics, embedding_size)
+        #     for t in e:
+        #         print("t.shape",t.shape)
+        #         t = torch.cat([t, context])
+        self.log.debug("context:", context.shape)
+        self.log.debug("embeds:", embeds.shape)
+        lstm_input = torch.cat([context, embeds], dim = 2)
+        self.log.debug("lstm_input:", lstm_input.shape)
+        _, lstm_out = self.lstm(lstm_input)
+        # lstm_out is a tuple of (last_hidden_State, last_cell_state)
+        # the last_hidden_state has the shape (no_of_direction, batch_size, hidden_size)
+        lstm_out = lstm_out[0][0]
+        self.log.debug("lstm_out:", lstm_out.shape)
+        tactics_vector = self.hidden2tactic(lstm_out)
 
-        probs = self.softmax(logits)
-        log_probs = self.log_softmax(logits)
-
-        return z, probs, log_probs
+        tactics_log_probs = self.log_softmax(tactics_vector)
+        return lstm_out, 0, tactics_log_probs
 
     def predict(self, tactics, features, batch_size=1):
         """ Given samples, runs inference. """
         self.eval()
-        _, probs, log_probs = self.forward(
+        _, _, log_probs = self.forward(
             Variable(torch.from_numpy(tactics.reshape(batch_size, -1)).long()),
             Variable(torch.from_numpy(features.reshape(batch_size, -1)).float()),
         )
-        return probs.view(-1).detach().numpy(), log_probs.view(-1).detach().numpy()
+        return 0, log_probs.view(-1).detach().numpy()
 
     def predict_params(self, new_tactic, tactics, features):
         self.eval()
-        enc_out = self.encoder(Variable(torch.from_numpy(tactics.reshape(1, -1)).long()),
+        lstm_out, _, _ = self.forward(Variable(torch.from_numpy(tactics.reshape(1, -1)).long()),
                                Variable(torch.from_numpy(features.reshape(1, -1)).float()))
-        params = self.forward_params(new_tactic, enc_out)
+        params = self.forward_params(new_tactic, lstm_out)
         return params
 
     def validate(self, n_valid, tactics, features, target_probs, target_params):
@@ -553,8 +583,7 @@ class RNN(nn.Module):
                 )
 
                 # predict probability distribution over tactics
-                probs, log_probs = probs.view(-1), log_probs.view(-1)
-                probs = probs.to(device)
+                log_probs = log_probs.view(-1)
                 log_probs = log_probs.to(device)
 
                 batch_target_probs = train_target_probs[mini_batch, :]
@@ -627,3 +656,4 @@ class RNN(nn.Module):
         if best_state is not None:
             self.log.info('Training done, restoring best found model...')
             self.load_state_dict(best_state)
+
