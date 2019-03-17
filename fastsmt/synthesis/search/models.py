@@ -324,17 +324,17 @@ class ApprenticeModel(Model):
         """ Initializes neural network."""
         params_per_tactic = self.strategy_enum.get_params_per_tactic()
         if self.type == 'bow':
-            # self.nn = PolicyNN(self.num_tactics, num_features, params_per_tactic, 30, MAX_LEN)
+            self.nn = PolicyNN(self.num_tactics, num_features, params_per_tactic, 30, MAX_LEN)
+        elif self.type == 'rnn':
             self.nn = RNN(self.num_tactics, num_features, params_per_tactic, 30, MAX_LEN)
-            self.nn.to(self.device)
-            if self.model_data is not None:
-                self.load_now()
         elif self.type == 'ast':
             # TODO: Check for number of tokens here
             self.nn = TreeNN(self.num_tactics, 300, params_per_tactic, MAX_LEN, 10, 10)
         else:
             assert False, 'Unknown feature type: ' + self.type
-
+        self.nn.to(self.device)
+        if self.model_data is not None:
+            self.load_now()
     def featurize_tactics(self, tactics):
         """ Given list of tactics, returns featurized representation. """
         if len(tactics) > MAX_LEN:
@@ -359,7 +359,7 @@ class ApprenticeModel(Model):
         if to_numpy:
             tactics = np.array(tactics)
 
-        if self.type == 'bow':
+        if self.type == 'bow' or self.type == 'rnn':
             bow = strategy.get_bow()[0]
             probes = strategy.get_probes()[0]
             features = np.array(bow)
@@ -432,6 +432,8 @@ class ApprenticeModel(Model):
 
             if self.type == 'bow':
                 tactics, features, params = self.featurize_candidate(scored_candidate, to_numpy=False)
+            elif self.type == 'rnn':
+                tactics, features, params = self.featurize_candidate(scored_candidate, to_numpy=False)
             else:
                 tactics, ast, params = self.featurize_candidate(scored_candidate, to_numpy=False)
                 # It is possible that AST is none because computation was terminated
@@ -455,6 +457,8 @@ class ApprenticeModel(Model):
             target_params = (best_tactic[key][1], best_tactic[key][2])
 
             if self.type == 'bow':
+                dataset.add_sample(FeaturizedSample(tactics, target_idx, target_params, target_probs, features))
+            elif self.type == 'rnn':
                 dataset.add_sample(FeaturizedSample(tactics, target_idx, target_params, target_probs, features))
             else:
                 dataset.add_sample(ASTSample(tactics, target_idx, target_params, ast))
@@ -489,7 +493,7 @@ class ApprenticeModel(Model):
             self.data.append((scored_candidate, status))
 
         tactics, features, params = self.featurize_candidate(scored_candidate)
-        if self.nn is None and self.type == 'bow':
+        if self.nn is None and ( self.type == 'bow' or self.type == 'rnn') :
             print("Number of features:%s"%(str(features.shape[0])))
             self.init_network(features.shape[0])
 
@@ -517,7 +521,7 @@ class ApprenticeModel(Model):
             return score + parent.score
 
         tactics, features, params = self.featurize_candidate(parent)
-        if self.nn is None and self.type == 'bow':
+        if self.nn is None and ( self.type == 'bow' or self.type == 'rnn'):
             self.init_network(features.shape[0])
 
         features = self.nn.scaler.transform(features.reshape(1, -1)).reshape(-1)        
@@ -532,7 +536,7 @@ class ApprenticeModel(Model):
 
         tactics, features, params = self.featurize_candidate(parent)
 
-        if self.nn is None and self.type == 'bow':
+        if self.nn is None and ( self.type == 'bow' or self.type == 'rnn'):
 
             self.init_network(features.shape[0])
 
